@@ -212,16 +212,19 @@ class Encode:
 if __name__ == '__main__':
     (r,g,b) = Encode.rgb("./demo.png")
     (y, cb, cr) = Encode.sample(*Encode.rgb2ycbcr(r, g, b))
-    y_dct_q = Encode.dct_quantize(y, Encode.Y_Table)
-    cb_dct_q = Encode.dct_quantize(cb, Encode.CbCr_Table)
-    cr_dct_q = Encode.dct_quantize(cr, Encode.CbCr_Table)
-
-    y_dct_q_in = Encode.invert_quantize_dct(y_dct_q, Encode.Y_Table)
-    cb_dct_q_in = Encode.invert_quantize_dct(cb_dct_q, Encode.CbCr_Table)
-    cr_dct_q_in = Encode.invert_quantize_dct(cr_dct_q, Encode.CbCr_Table)
-
-    (r, g, b) = Encode.ycbcr2rgb(y_dct_q_in, cb_dct_q_in, cr_dct_q_in)
-    c = np.column_stack((r, g, b))
+    # y_dct_q = Encode.dct_quantize(y, Encode.Y_Table)
+    # cb_dct_q = Encode.dct_quantize(cb, Encode.CbCr_Table)
+    # cr_dct_q = Encode.dct_quantize(cr, Encode.CbCr_Table)
+    #
+    # y_dct_q_in = Encode.invert_quantize_dct(y_dct_q, Encode.Y_Table)
+    # cb_dct_q_in = Encode.invert_quantize_dct(cb_dct_q, Encode.CbCr_Table)
+    # cr_dct_q_in = Encode.invert_quantize_dct(cr_dct_q, Encode.CbCr_Table)
+    #
+    # (r, g, b) = Encode.ycbcr2rgb(y_dct_q_in, cb_dct_q_in, cr_dct_q_in)
+    # (r, g, b) = Encode.ycbcr2rgb(y, cb, cr)
+    # c = np.column_stack((r, g, b))
+    c = np.dstack((r, g, b))
+    print(c)
     plt.imshow(c)
     plt.show()
 
