@@ -1,10 +1,15 @@
 #!/usr/bin/python3
 
+##########################################################################
+# 注意事项：数组的类型很重要，设置不当，导致最后的图片颜色不正确。
+#
+##########################################################################
+
 import numpy as np
 import math
 from PIL import Image
-from matplotlib import pyplot as plt
 from scipy.fftpack import dctn, idctn
+
 
 class Encode:
     '''
@@ -12,22 +17,22 @@ class Encode:
     '''
     # 亮度量化表
     Y_Table = np.array([[16, 11, 10, 16, 24, 40, 51, 61],
-                                     [12, 12, 14, 19, 26, 58, 60, 55],
-                                     [14, 13, 16, 24, 40, 57, 69, 56],
-                                     [14, 17, 22, 29, 51, 87, 80, 62],
-                                     [18, 22, 37, 56, 68, 109, 103, 77],
-                                     [24, 35, 55, 64, 81, 104, 113, 92],
-                                     [49, 64, 78, 87, 103, 121, 120, 101],
-                                     [72, 92, 95, 98, 112, 100, 103, 99]])
+                        [12, 12, 14, 19, 26, 58, 60, 55],
+                        [14, 13, 16, 24, 40, 57, 69, 56],
+                        [14, 17, 22, 29, 51, 87, 80, 62],
+                        [18, 22, 37, 56, 68, 109, 103, 77],
+                        [24, 35, 55, 64, 81, 104, 113, 92],
+                        [49, 64, 78, 87, 103, 121, 120, 101],
+                        [72, 92, 95, 98, 112, 100, 103, 99]])
     # 色差量化表
     CbCr_Table = np.array([[17, 18, 24, 47, 99, 99, 99, 99],
-                             [18, 21, 26, 66, 99, 99, 99, 99],
-                             [24, 26, 56, 99, 99, 99, 99, 99],
-                             [47, 66, 99, 99, 99, 99, 99, 99],
-                             [99, 99, 99, 99, 99, 99, 99, 99],
-                             [99, 99, 99, 99, 99, 99, 99, 99],
-                             [99, 99, 99, 99, 99, 99, 99, 99],
-                             [99, 99, 99, 99, 99, 99, 99, 99]])
+                           [18, 21, 26, 66, 99, 99, 99, 99],
+                           [24, 26, 56, 99, 99, 99, 99, 99],
+                           [47, 66, 99, 99, 99, 99, 99, 99],
+                           [99, 99, 99, 99, 99, 99, 99, 99],
+                           [99, 99, 99, 99, 99, 99, 99, 99],
+                           [99, 99, 99, 99, 99, 99, 99, 99],
+                           [99, 99, 99, 99, 99, 99, 99, 99]])
 
     @staticmethod
     def rgb(path):
@@ -81,8 +86,8 @@ class Encode:
         dct_array = np.zeros((origin_row, origin_col), dtype=float)
         for i in range(0, origin_row, row):
             for j in range(0, origin_col, col):
-                sub_array = new_array[i: i+row, j: j+col]
-                dct_array[i:i+row, j: j+col] = Encode.quantize(dctn(sub_array, norm='ortho'), table)
+                sub_array = dctn(new_array[i: i+row, j: j+col], norm='ortho')
+                dct_array[i:i+row, j: j+col] = (sub_array * table).round().astype(np.int32)
 
         return dct_array
 
@@ -96,10 +101,11 @@ class Encode:
         for i in range(0, origin_row, row):
             for j in range(0, origin_col, col):
                 sub_array = array[i: i+row, j: j+col]
-                sub_array = Encode.invert_quantize(sub_array, table)
+                sub_array = sub_array / table
                 dct_array[i:i+row, j: j+col] = idctn(sub_array,  norm='ortho')
 
-        return dct_array
+        new_array = dct_array + 128
+        return np.clip(new_array, a_min=0, a_max=255)
 
     @staticmethod
     def dct_quantize(array, table):
@@ -155,17 +161,17 @@ class Encode:
     @staticmethod
     def quantize(array, table):
         (row, col) = np.shape(array)
-        new_array = array
+        new_array = np.zeros((row, col), dtype=np.float32)
         for i in range(0, row):
             for j in range(0, col):
-                new_array[i, j] = round(array[i, j] // table[i, j])
+                new_array[i, j] = round(array[i, j] / table[i, j])
 
         return new_array
 
     @staticmethod
     def invert_quantize(array, table):
         (row, col) = np.shape(array)
-        new_array = array
+        new_array = np.zeros((row, col), dtype=np.float32)
         for i in range(0, row):
             for j in range(0, col):
                 new_array[i, j] = round(array[i, j] * table[i, j])
@@ -246,38 +252,46 @@ class Encode:
 
         return cr
 
+    @staticmethod
+    def main():
+        (r,g,b) = Encode.rgb("./icon.png")
+        print(r)
 
+        (y, cb, cr) = Encode.rgb2ycbcr(r, g, b)
+        # (y, cb, cr) = Encode.sample(y, cb, cr)
+
+        y_dct_q = Encode.process(y, Encode.Y_Table)
+        cb_dct_q = Encode.process(cb, Encode.CbCr_Table)
+        cr_dct_q = Encode.process(cr, Encode.CbCr_Table)
+        y_dct_q_in = Encode.invert_process(y_dct_q, Encode.Y_Table)
+        cb_dct_q_in = Encode.invert_process(cb_dct_q, Encode.CbCr_Table)
+        cr_dct_q_in = Encode.invert_process(cr_dct_q, Encode.CbCr_Table)
+
+        # y_dct_q = Encode.dct_quantize(y, Encode.Y_Table)
+        # cb_dct_q = Encode.dct_quantize(cb, Encode.CbCr_Table)
+        # cr_dct_q = Encode.dct_quantize(cr, Encode.CbCr_Table)
+        # y_dct_q_in = Encode.invert_quantize_dct(y, Encode.Y_Table)
+        # cb_dct_q_in = Encode.invert_quantize_dct(cb_dct_q, Encode.CbCr_Table)
+        # cr_dct_q_in = Encode.invert_quantize_dct(cr_dct_q, Encode.CbCr_Table)
+        #
+        (r, g, b) = Encode.ycbcr2rgb(y_dct_q_in, cb_dct_q_in, cr_dct_q_in)
+        # alpha = np.zeros(np.shape(r), dtype=np.uint8)
+        # (r, g, b) = Encode.ycbcr2rgb(y, cb, cr)
+        # c = np.column_stack((r, g, b))
+        c = np.dstack((r, g, b))
+        im = Image.fromarray(c)
+        im.show()
+
+    @staticmethod
+    def test():
+        r = np.array([[1,2,3], [0, 0, 0], [0,0,0], [11, 13, 15], [0, 0, 0], [0, 0, 0]])
+        g = np.array([[4,5,6], [0, 0, 0], [0,0,0]])
+        b = np.array([[7,8,9], [0, 0, 0], [0,0,0]])
+        c = np.dstack((r, g, b))
+        im = Image.fromarray(c)
+        im.show()
 
 
 
 if __name__ == '__main__':
-    import sys
-    # np.set_printoptions(threshold=sys.maxsize)
-    (r,g,b) = Encode.rgb("./demo.png")
-    print(r)
-    print(g)
-    print(b)
-    print("="*15)
-    (y, cb, cr) = Encode.rgb2ycbcr(r, g, b)
-    # (y, cb, cr) = Encode.sample(y, cb, cr)
-
-    y_dct_q = Encode.process(y, Encode.Y_Table)
-    # print(y_dct_q)
-    cb_dct_q = Encode.process(cb, Encode.CbCr_Table)
-    cr_dct_q = Encode.process(cr, Encode.CbCr_Table)
-    #
-    y_dct_q_in = Encode.invert_process(y_dct_q, Encode.Y_Table)
-    # print(y_dct_q_in)
-    cb_dct_q_in = Encode.invert_process(cb_dct_q, Encode.CbCr_Table)
-    cr_dct_q_in = Encode.invert_process(cr_dct_q, Encode.CbCr_Table)
-    #
-    (r, g, b) = Encode.ycbcr2rgb(y_dct_q_in, cb_dct_q_in, cr_dct_q_in)
-    # (r, g, b) = Encode.ycbcr2rgb(y, cb, cr)
-    # c = np.column_stack((r, g, b))
-    c = np.dstack((r, g, b))
-    print(b)
-    im = Image.fromarray(c)
-    im.show()
-
-
-
+    Encode.main()
