@@ -4,6 +4,7 @@ import numpy as np
 import math
 from PIL import Image
 from matplotlib import pyplot as plt
+from scipy.fftpack import dctn, idctn
 
 class Encode:
     '''
@@ -50,31 +51,66 @@ class Encode:
 
         """
         yarray = 0.299 * rarray + 0.587 * garray + 0.114 * barray
-        cbarray = 128 - 0.168 * rarray - 0.331264 * garray + 0.5 * barray
+        cbarray = 128 - 0.168736 * rarray - 0.331264 * garray + 0.5 * barray
         crarray = 128 + 0.5 * rarray - 0.418688 * garray - 0.081312 * barray
         return yarray, cbarray, crarray
 
     @staticmethod
     def ycbcr2rgb(yarray, cbarray, crarray):
-        r = yarray + 1.402 * (crarray - 128)
-        g = yarray - 0.344136 * (cbarray - 128) - 0.714136 * (crarray - 128)
-        b = yarray + 1.772 * (cbarray - 128)
+        """
+        3-dimensional arrays must be of dtype unsigned byte, unsigned short, float32 or float64
+        """
+        r = np.around(yarray + 1.402 * (crarray - 128)).astype(np.uint8).clip(min=0, max=255)
+        g = np.around(yarray - 0.344136 * (cbarray - 128) - 0.714136 * (crarray - 128)).astype(np.uint8).clip(min=0, max=255)
+        b = np.around(yarray + 1.772 * (cbarray - 128)).astype(np.uint8).clip(min=0, max=255)
         return r, g, b
 
     @staticmethod
     def sample(yarray, cbarray, crarray):
         """采样规则：4:2:0"""
-        return (Encode.sampleY(yarray), Encode.sampleCb(cbarray), Encode.sampleCr(crarray))
+        return Encode.sampleY(yarray), Encode.sampleCb(cbarray), Encode.sampleCr(crarray)
+
+    @staticmethod
+    def process(array, table):
+        row = 8
+        col = 8
+
+        new_array = Encode.pad_array(array, row, col) - 128
+
+        (origin_row, origin_col) = np.shape(new_array)
+        dct_array = np.zeros((origin_row, origin_col), dtype=float)
+        for i in range(0, origin_row, row):
+            for j in range(0, origin_col, col):
+                sub_array = new_array[i: i+row, j: j+col]
+                dct_array[i:i+row, j: j+col] = Encode.quantize(dctn(sub_array, norm='ortho'), table)
+
+        return dct_array
+
+    @staticmethod
+    def invert_process(array, table):
+        row = 8
+        col = 8
+
+        (origin_row, origin_col) = np.shape(array)
+        dct_array = np.zeros((origin_row, origin_col), dtype=float)
+        for i in range(0, origin_row, row):
+            for j in range(0, origin_col, col):
+                sub_array = array[i: i+row, j: j+col]
+                sub_array = Encode.invert_quantize(sub_array, table)
+                dct_array[i:i+row, j: j+col] = idctn(sub_array,  norm='ortho')
+
+        return dct_array
 
     @staticmethod
     def dct_quantize(array, table):
         print("dct_quantize")
         row = 8
         col = 8
-        new_array = Encode.pad_array(array, row, col)
-        new_array = Encode.apply_fn(new_array - 128, row, col, Encode.dct)
+        dct = lambda x: dctn(x, norm='ortho')
+        new_array = Encode.apply_fn(array - 128, row, col, dct)
         quantize = lambda x: Encode.quantize(x, table)
         return Encode.apply_fn(new_array, row, col, quantize)
+        # return new_array
 
     @staticmethod
     def invert_quantize_dct(array, table):
@@ -83,10 +119,11 @@ class Encode:
         col = 8
         invert_quantize = lambda x: Encode.invert_quantize(x, table)
         new_array = Encode.apply_fn(array, row, col, invert_quantize)
-        new_array = Encode.apply_fn(new_array, row, col, Encode.invert_dct)
+        idct = lambda x: idctn(x, norm='ortho')
+        new_array = Encode.apply_fn(new_array, row, col, idct)
         new_array = new_array + 128
 
-        return new_array
+        return np.clip(new_array, a_min=0, a_max=255)
 
     @staticmethod
     def apply_fn(array, row, col, fn):
@@ -132,6 +169,8 @@ class Encode:
         for i in range(0, row):
             for j in range(0, col):
                 new_array[i, j] = round(array[i, j] * table[i, j])
+
+        return new_array
 
     @staticmethod
     def dct(array):
@@ -187,10 +226,11 @@ class Encode:
     @staticmethod
     def sampleCb(array):
         (row, col) = np.shape(array)
-        cb = np.zeros((row, col), dtype=float)
-        for i in range(0, row, 2):
-            for j in range(0, col, 2):
+        cb = np.zeros((row, col), dtype=np.float32)
+        for i in range(0, row - 1, 2):
+            for j in range(0, col - 1, 2):
                 cb[i // 2, j // 2] = array[i, j]
+                # cb[i, j] = array[i, j]
 
         return cb
 
@@ -198,10 +238,11 @@ class Encode:
     @staticmethod
     def sampleCr(array):
         (row, col) = np.shape(array)
-        cr = np.zeros((row, col), dtype=float)
+        cr = np.zeros((row, col), dtype=np.float32)
         for i in range(1, row, 2):
-            for j in range(1, col, 2):
+            for j in range(0, col - 1, 2):
                 cr[(i-1) // 2, (j-1) // 2] = array[i, j]
+                # cr[i, j] = array[i, j]
 
         return cr
 
@@ -210,23 +251,33 @@ class Encode:
 
 
 if __name__ == '__main__':
+    import sys
+    # np.set_printoptions(threshold=sys.maxsize)
     (r,g,b) = Encode.rgb("./demo.png")
-    (y, cb, cr) = Encode.sample(*Encode.rgb2ycbcr(r, g, b))
-    # y_dct_q = Encode.dct_quantize(y, Encode.Y_Table)
-    # cb_dct_q = Encode.dct_quantize(cb, Encode.CbCr_Table)
-    # cr_dct_q = Encode.dct_quantize(cr, Encode.CbCr_Table)
+    print(r)
+    print(g)
+    print(b)
+    print("="*15)
+    (y, cb, cr) = Encode.rgb2ycbcr(r, g, b)
+    # (y, cb, cr) = Encode.sample(y, cb, cr)
+
+    y_dct_q = Encode.process(y, Encode.Y_Table)
+    # print(y_dct_q)
+    cb_dct_q = Encode.process(cb, Encode.CbCr_Table)
+    cr_dct_q = Encode.process(cr, Encode.CbCr_Table)
     #
-    # y_dct_q_in = Encode.invert_quantize_dct(y_dct_q, Encode.Y_Table)
-    # cb_dct_q_in = Encode.invert_quantize_dct(cb_dct_q, Encode.CbCr_Table)
-    # cr_dct_q_in = Encode.invert_quantize_dct(cr_dct_q, Encode.CbCr_Table)
+    y_dct_q_in = Encode.invert_process(y_dct_q, Encode.Y_Table)
+    # print(y_dct_q_in)
+    cb_dct_q_in = Encode.invert_process(cb_dct_q, Encode.CbCr_Table)
+    cr_dct_q_in = Encode.invert_process(cr_dct_q, Encode.CbCr_Table)
     #
-    # (r, g, b) = Encode.ycbcr2rgb(y_dct_q_in, cb_dct_q_in, cr_dct_q_in)
+    (r, g, b) = Encode.ycbcr2rgb(y_dct_q_in, cb_dct_q_in, cr_dct_q_in)
     # (r, g, b) = Encode.ycbcr2rgb(y, cb, cr)
     # c = np.column_stack((r, g, b))
     c = np.dstack((r, g, b))
-    print(c)
-    plt.imshow(c)
-    plt.show()
+    print(b)
+    im = Image.fromarray(c)
+    im.show()
 
 
 
